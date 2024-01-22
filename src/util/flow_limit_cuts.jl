@@ -2,7 +2,7 @@
 
 """
 Solves the OPF problem by iteratively adding line flow constraints based on 
-constraint violations
+constraint violations, and line cost based on a given threshold
 
 # Keyword Arguments
 * `model_type`: the power flow formulaiton.
@@ -21,6 +21,10 @@ function solve_opf_branch_power_cuts!(data::Dict{String,<:Any}, model_type::Type
         if haskey(branch, "rate_a")
             branch["rate_a_inactive"] = branch["rate_a"]
             delete!(branch, "rate_a")
+        end
+        if haskey(branch, "cost")
+            branch["cost_inactive"] = branch["cost"]
+            delete!(branch, "cost")
         end
     end
 
@@ -61,6 +65,35 @@ function solve_opf_branch_power_cuts!(data::Dict{String,<:Any}, model_type::Type
                     constraint_thermal_limit_from(pm, idx)
                     constraint_thermal_limit_to(pm, idx)
 
+                    violated = true
+                end
+            end
+            
+            if haskey(branch, "cost_inactive") && haskey(branch, "cost_threshold")
+                if haskey(branch, "rate_a")
+                    rate_a = branch["rate_a"]
+                else
+                    rate_a = branch["rate_a_inactive"]
+                end
+                cost = branch["cost_inactive"]
+
+                branch_sol = result["solution"]["branch"][i]
+                mva_fr = abs(branch_sol["pf"])
+                mva_to = abs(branch_sol["pt"])
+
+                if !isnan(branch_sol["qf"]) && !isnan(branch_sol["qt"])
+                    mva_fr = sqrt(branch_sol["pf"]^2 + branch_sol["qf"]^2)
+                    mva_to = sqrt(branch_sol["pt"]^2 + branch_sol["qt"]^2)
+                end
+
+                power_threshold = branch["cost_threshold"] * rate_a
+
+                if mva_fr > power_threshold || mva_to > power_threshold
+                    Memento.info(_LOGGER, "activate cost on branch $(branch["index"])")
+
+                    branch["cost"] = branch["cost_inactive"]
+                    delete!(branch, "cost_inactive")
+                    
                     violated = true
                 end
             end
