@@ -1,7 +1,7 @@
 name = "PowerModels"
-uuid = "c36e90e8-916a-50a6-bd94-075b64ef4655"
-authors = ["Carleton Coffrin"]
-repo = "https://github.com/lanl-ansi/PowerModels.jl"
+uuid = "b8a7ab4e-9095-45b7-96d1-8768622bb4e5"
+authors = ["Carleton Coffrin, Marc Gillioz"]
+repo = "https://github.com/gillioz/PowerModels.jl"
 version = "0.19.9"
 
 [deps]
