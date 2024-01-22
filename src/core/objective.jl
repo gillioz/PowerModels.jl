@@ -98,6 +98,19 @@ end
 
 
 ""
+function objective_min_fuel_and_branch_cost(pm::AbstractPowerModel; kwargs...)
+    model = check_cost_models(pm)
+
+    if model == 2
+        return objective_min_fuel_and_branch_cost_polynomial(pm; kwargs...)
+    else
+        Memento.error(_LOGGER, "Only cost models of type 2 are supported at this time, given cost model type of $(model)")
+    end
+
+end
+
+
+""
 function objective_min_fuel_cost(pm::AbstractPowerModel; kwargs...)
     model = check_gen_cost_models(pm)
 
@@ -121,6 +134,18 @@ function objective_min_fuel_and_flow_cost_polynomial(pm::AbstractPowerModel; kwa
     else
         return _objective_min_fuel_and_flow_cost_polynomial_nl(pm; kwargs...)
     end
+end
+
+""
+function objective_min_fuel_and_branch_cost_polynomial(pm::AbstractPowerModel; kwargs...)
+    order = calc_max_cost_index(pm.data)-1
+
+    if order <= 2
+        return _objective_min_fuel_and_branch_cost_polynomial_linquad(pm; kwargs...)
+    else
+        Memento.error(_LOGGER, "Only linear or quadratic polynomials are supported")
+    end
+
 end
 
 ""
@@ -167,6 +192,84 @@ function _objective_min_fuel_and_flow_cost_polynomial_linquad(pm::AbstractPowerM
     )
 end
 
+""
+function _objective_min_fuel_and_branch_cost_polynomial_linquad(pm::AbstractPowerModel; report::Bool=true)
+    gen_cost = Dict()
+    branch_cost = Dict()
+
+    for (n, nw_ref) in nws(pm)
+        for (i,gen) in nw_ref[:gen]
+            pg = sum( var(pm, n, :pg, i)[c] for c in conductor_ids(pm, n) )
+
+            if length(gen["cost"]) == 1
+                gen_cost[(n,i)] = gen["cost"][1]
+            elseif length(gen["cost"]) == 2
+                gen_cost[(n,i)] = gen["cost"][1]*pg + gen["cost"][2]
+            elseif length(gen["cost"]) == 3
+                gen_cost[(n,i)] = gen["cost"][1]*pg^2 + gen["cost"][2]*pg + gen["cost"][3]
+            else
+                gen_cost[(n,i)] = 0.0
+            end
+        end
+
+        from_idx = Dict(arc[1] => arc for arc in nw_ref[:arcs_from])
+        for (i,branch) in nw_ref[:branch]
+            p = sum( var(pm, n, :p, from_idx[i])[c] for c in conductor_ids(pm, n) )
+            q = sum( var(pm, n, :q, from_idx[i])[c] for c in conductor_ids(pm, n) )
+            if haskey(branch, "cost") && haskey(branch, "rate_a")
+                branch_cost[(n,i)] = branch["cost"] * (p^2 + q^2) / branch["rate_a"]
+            else
+                branch_cost[(n,i)] = 0.0
+            end
+        end
+    end
+
+    return JuMP.@objective(pm.model, Min,
+        sum(
+            sum(    gen_cost[(n,i)] for (i,gen) in nw_ref[:gen] ) +
+            sum( branch_cost[(n,i)] for (i,branch) in nw_ref[:branch] )
+        for (n, nw_ref) in nws(pm))
+    )
+end
+
+""
+function _objective_min_fuel_and_branch_cost_polynomial_linquad(pm::AbstractActivePowerModel; report::Bool=true)
+    gen_cost = Dict()
+    branch_cost = Dict()
+
+    for (n, nw_ref) in nws(pm)
+        for (i,gen) in nw_ref[:gen]
+            pg = sum( var(pm, n, :pg, i)[c] for c in conductor_ids(pm, n) )
+
+            if length(gen["cost"]) == 1
+                gen_cost[(n,i)] = gen["cost"][1]
+            elseif length(gen["cost"]) == 2
+                gen_cost[(n,i)] = gen["cost"][1]*pg + gen["cost"][2]
+            elseif length(gen["cost"]) == 3
+                gen_cost[(n,i)] = gen["cost"][1]*pg^2 + gen["cost"][2]*pg + gen["cost"][3]
+            else
+                gen_cost[(n,i)] = 0.0
+            end
+        end
+        
+        from_idx = Dict(arc[1] => arc for arc in nw_ref[:arcs_from])
+        for (i,branch) in nw_ref[:branch]
+            p = sum( var(pm, n, :p, from_idx[i])[c] for c in conductor_ids(pm, n) )
+            if haskey(branch, "cost") && haskey(branch, "rate_a")
+                branch_cost[(n,i)] = branch["cost"] * p^2 / branch["rate_a"]
+            else
+                branch_cost[(n,i)] = 0.0
+            end
+        end
+    end
+
+    return JuMP.@objective(pm.model, Min,
+        sum(
+            sum(    gen_cost[(n,i)] for (i,gen) in nw_ref[:gen] ) +
+            sum( branch_cost[(n,i)] for (i,branch) in nw_ref[:branch] )
+        for (n, nw_ref) in nws(pm))
+    )
+end 
 
 "Adds lifted variables to turn a quadatic objective into a linear one; needed for conic solvers that only support linear objectives"
 function _objective_min_fuel_and_flow_cost_polynomial_linquad(pm::AbstractConicModels, report::Bool=true)
