@@ -40,6 +40,23 @@ function build_topf(pm::AbstractPowerModel)
     for i in ids(pm, :dcline)
         constraint_dcline_power_losses(pm, i)
     end
+
+    for i in ids(pm, :gen)
+        gen = ref(pm, nw_id_default, :gen, i)
+        if haskey(gen, "ramp_max") & haskey(gen, "pg")
+            pg = var(pm, nw_id_default, :pg, i)
+
+            pmin = gen["pg"] - gen["ramp_max"]
+            if JuMP.lower_bound(pg) < pmin
+                JuMP.set_lower_bound(pg, pmin)
+            end
+
+            pmax = gen["pg"] + gen["ramp_max"]
+            if JuMP.upper_bound(pg) > pmax
+                JuMP.set_upper_bound(pg, pmax)
+            end
+        end
+    end
 end
 
 
